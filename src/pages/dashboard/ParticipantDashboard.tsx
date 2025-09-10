@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import Navbar from "@/components/Navbar";
-import { Calendar, MapPin, Clock, Users, Filter, Search } from "lucide-react";
+import { Calendar, Users, DollarSign, Search, Filter } from "lucide-react";
 
 interface Event {
   id: string;
@@ -17,25 +17,14 @@ interface Event {
   status: string;
   type_id: string;
   type_name: string;
-  organizer_name: string;
   participant_count: number;
-  user_registered: boolean;
   created_at: string;
+  is_registered: boolean;
 }
 
 interface EventType {
   id: string;
   name: string;
-}
-
-interface UserEvent {
-  id: string;
-  title: string;
-  description: string;
-  price: number;
-  type_name: string;
-  organizer_name: string;
-  registered_at: string;
 }
 
 const ParticipantDashboard = () => {
@@ -45,95 +34,90 @@ const ParticipantDashboard = () => {
   });
 
   const [events, setEvents] = useState<Event[]>([]);
-  const [userEvents, setUserEvents] = useState<UserEvent[]>([]);
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
-  const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
-  
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState("all");
-  const [activeTab, setActiveTab] = useState<'available' | 'registered'>('available');
-  
   const [loading, setLoading] = useState(true);
+  const [registering, setRegistering] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
-    fetchDashboardData();
+    fetchEventTypes();
+    fetchEvents();
   }, []);
 
-  useEffect(() => {
-    filterEvents();
-  }, [events, searchTerm, selectedType]);
-
-  const fetchDashboardData = async () => {
+  const fetchEventTypes = async () => {
     try {
-      // Fetch event types
-      const { data: typesData, error: typesError } = await supabase
+      const { data, error } = await supabase
         .from('event_types')
         .select('*')
         .order('name');
 
-      if (typesError) throw typesError;
-      setEventTypes(typesData || []);
+      if (error) throw error;
+      setEventTypes(data || []);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao carregar tipos de evento",
+        description: error.message,
+      });
+    }
+  };
 
-      // Fetch all active events with participant info
+  const fetchEvents = async () => {
+    setLoading(true);
+    try {
+      // Query corrigida - sem GROUP BY problemático
       const { data: eventsData, error: eventsError } = await supabase
         .from('events')
         .select(`
-          *,
-          event_types!inner(name),
-          organizer:users!organizer_id(name),
-          tickets(count, participant_id)
+          id,
+          title,
+          description,
+          price,
+          status,
+          type_id,
+          created_at,
+          event_types(name)
         `)
         .eq('status', 'active')
         .order('created_at', { ascending: false });
 
       if (eventsError) throw eventsError;
 
-      const formattedEvents = eventsData?.map(event => ({
-        ...event,
-        type_name: event.event_types?.name || 'N/A',
-        organizer_name: event.organizer?.name || 'N/A',
-        participant_count: event.tickets?.length || 0,
-        user_registered: event.tickets?.some(ticket => ticket.participant_id === user.id) || false,
-      })) || [];
-
-      setEvents(formattedEvents);
-
-      // Fetch user's registered events
-      const { data: userEventsData, error: userEventsError } = await supabase
+      // Buscar registros do usuário atual
+      const { data: userTickets, error: ticketsError } = await supabase
         .from('tickets')
-        .select(`
-          created_at,
-          events!inner(
-            id,
-            title,
-            description,
-            price,
-            event_types!inner(name),
-            organizer:users!organizer_id(name)
-          )
-        `)
-        .eq('participant_id', user.id)
-        .order('created_at', { ascending: false });
+        .select('event_id')
+        .eq('participant_id', user.id);
 
-      if (userEventsError) throw userEventsError;
+      if (ticketsError) throw ticketsError;
 
-      const formattedUserEvents = userEventsData?.map(ticket => ({
-        id: ticket.events.id,
-        title: ticket.events.title,
-        description: ticket.events.description,
-        price: ticket.events.price,
-        type_name: ticket.events.event_types?.name || 'N/A',
-        organizer_name: ticket.events.organizer?.name || 'N/A',
-        registered_at: ticket.created_at,
-      })) || [];
+      const userEventIds = new Set(userTickets?.map(ticket => ticket.event_id) || []);
 
-      setUserEvents(formattedUserEvents);
+      // Para cada evento, contar participantes e verificar se usuário está registrado
+      const eventsWithDetails = await Promise.all(
+        (eventsData || []).map(async (event) => {
+          // Contar participantes
+          const { count } = await supabase
+            .from('tickets')
+            .select('*', { count: 'exact', head: true })
+            .eq('event_id', event.id);
 
+          return {
+            ...event,
+            type_name: event.event_types?.name || 'N/A',
+            participant_count: count || 0,
+            is_registered: userEventIds.has(event.id)
+          };
+        })
+      );
+
+      setEvents(eventsWithDetails);
     } catch (error: any) {
       toast({
         variant: "destructive",
-        title: "Erro ao carregar dados",
+        title: "Erro ao carregar eventos",
         description: error.message,
       });
     } finally {
@@ -141,45 +125,9 @@ const ParticipantDashboard = () => {
     }
   };
 
-  const filterEvents = () => {
-    let filtered = [...events];
-
-    // Filter by search term
-    if (searchTerm) {
-      filtered = filtered.filter(event =>
-        event.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        event.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        event.organizer_name.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
-    // Filter by event type
-    if (selectedType && selectedType !== 'all') {
-      filtered = filtered.filter(event => event.type_id === selectedType);
-    }
-
-    setFilteredEvents(filtered);
-  };
-
-  const handleBuyTicket = async (eventId: string) => {
+  const registerForEvent = async (eventId: string) => {
+    setRegistering(eventId);
     try {
-      // Check if user is already registered
-      const existingTicket = await supabase
-        .from('tickets')
-        .select('id')
-        .eq('event_id', eventId)
-        .eq('participant_id', user.id)
-        .single();
-
-      if (existingTicket.data) {
-        toast({
-          variant: "destructive",
-          title: "Já inscrito",
-          description: "Você já possui um ingresso para este evento.",
-        });
-        return;
-      }
-
       const { error } = await supabase
         .from('tickets')
         .insert([{
@@ -190,240 +138,299 @@ const ParticipantDashboard = () => {
       if (error) throw error;
 
       toast({
-        title: "Ingresso adquirido!",
+        title: "Inscrição realizada!",
         description: "Você foi inscrito no evento com sucesso.",
       });
 
-      // Refresh data
-      fetchDashboardData();
+      // Atualizar a lista de eventos
+      fetchEvents();
     } catch (error: any) {
       toast({
         variant: "destructive",
-        title: "Erro ao comprar ingresso",
-        description: error.message,
+        title: "Erro na inscrição",
+        description: error.message.includes('duplicate') 
+          ? "Você já está inscrito neste evento."
+          : error.message,
       });
+    } finally {
+      setRegistering(null);
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+  const unregisterFromEvent = async (eventId: string) => {
+    setRegistering(eventId);
+    try {
+      const { error } = await supabase
+        .from('tickets')
+        .delete()
+        .eq('event_id', eventId)
+        .eq('participant_id', user.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Inscrição cancelada",
+        description: "Sua inscrição foi cancelada com sucesso.",
+      });
+
+      fetchEvents();
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao cancelar inscrição",
+        description: error.message,
+      });
+    } finally {
+      setRegistering(null);
+    }
   };
+
+  const filteredEvents = events.filter(event => {
+    const matchesSearch = event.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         event.description?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesType = selectedType === 'all' || event.type_id === selectedType;
+    return matchesSearch && matchesType;
+  });
+
+  const registeredEvents = events.filter(event => event.is_registered);
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      <div className="min-h-screen bg-gray-50">
+        <Navbar user={user} />
+        <div className="container mx-auto px-4 py-8">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+              <p className="mt-4 text-gray-600">Carregando eventos...</p>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-gray-50">
       <Navbar user={user} />
-      
-      <div className="container max-w-7xl mx-auto p-6">
+      <div className="container mx-auto px-4 py-8">
+        {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">
-            Descubra Eventos Incríveis
-          </h1>
-          <p className="text-muted-foreground">
-            Encontre e participe dos melhores eventos da sua região
-          </p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard do Participante</h1>
+          <p className="text-gray-600">Encontre e participe dos melhores eventos da sua região</p>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex mb-6 border-b">
-          <button
-            onClick={() => setActiveTab('available')}
-            className={`px-6 py-3 font-medium border-b-2 transition-colors ${
-              activeTab === 'available'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Eventos Disponíveis
-          </button>
-          <button
-            onClick={() => setActiveTab('registered')}
-            className={`px-6 py-3 font-medium border-b-2 transition-colors ${
-              activeTab === 'registered'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Meus Eventos ({userEvents.length})
-          </button>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Eventos Disponíveis</CardTitle>
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{events.length}</div>
+              <p className="text-xs text-muted-foreground">
+                Eventos ativos na plataforma
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Minhas Inscrições</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{registeredEvents.length}</div>
+              <p className="text-xs text-muted-foreground">
+                Eventos que você se inscreveu
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Valor Total</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                R$ {registeredEvents.reduce((total, event) => total + event.price, 0).toFixed(2)}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Total investido em eventos
+              </p>
+            </CardContent>
+          </Card>
         </div>
 
-        {activeTab === 'available' && (
-          <>
-            {/* Filters */}
-            <Card className="mb-6">
-              <CardContent className="p-6">
-                <div className="flex flex-col md:flex-row gap-4">
-                  <div className="flex-1">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                      <Input
-                        placeholder="Buscar eventos..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
-                  </div>
-                  <div className="md:w-48">
-                    <Select value={selectedType} onValueChange={setSelectedType}>
-                      <SelectTrigger>
-                        <Filter className="w-4 h-4 mr-2" />
-                        <SelectValue placeholder="Tipo de evento" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Todos os tipos</SelectItem>
-                        {eventTypes.map((type) => (
-                          <SelectItem key={type.id} value={type.id}>
-                            {type.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+        {/* Filters */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="h-5 w-5" />
+              Filtros de Busca
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex-1">
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar eventos..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+              <div className="w-full md:w-48">
+                <Select value={selectedType} onValueChange={setSelectedType}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Tipo de evento" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os tipos</SelectItem>
+                    {eventTypes.map((type) => (
+                      <SelectItem key={type.id} value={type.id}>
+                        {type.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Events List */}
+        <div className="space-y-6">
+          <h2 className="text-2xl font-bold text-gray-900">Eventos Disponíveis</h2>
+          
+          {filteredEvents.length === 0 ? (
+            <Card>
+              <CardContent className="py-12">
+                <div className="text-center text-gray-500">
+                  <Calendar className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                  <h3 className="text-lg font-medium mb-2">Nenhum evento encontrado</h3>
+                  <p>
+                    {searchTerm || selectedType !== 'all' 
+                      ? 'Tente ajustar os filtros para encontrar eventos.' 
+                      : 'Ainda não há eventos disponíveis. Volte em breve!'}
+                  </p>
                 </div>
               </CardContent>
             </Card>
-
-            {/* Events Grid */}
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredEvents.map((event) => (
-                <Card key={event.id} className="card-gradient border-0 shadow-lg hover:shadow-xl transition-shadow">
+                <Card key={event.id} className="h-full flex flex-col">
                   <CardHeader>
                     <div className="flex justify-between items-start mb-2">
-                      <Badge variant="secondary">{event.type_name}</Badge>
-                      <span className="text-2xl font-bold text-primary">
-                        R$ {event.price.toFixed(2)}
-                      </span>
-                    </div>
-                    <CardTitle className="text-lg">{event.title}</CardTitle>
-                    <CardDescription className="text-sm">
-                      Por {event.organizer_name}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground mb-4 line-clamp-3">
-                      {event.description}
-                    </p>
-                    
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
-                      <div className="flex items-center gap-1">
-                        <Users className="w-4 h-4" />
-                        <span>{event.participant_count}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Calendar className="w-4 h-4" />
-                        <span>{formatDate(event.created_at)}</span>
-                      </div>
-                    </div>
-
-                    {event.user_registered ? (
-                      <Button disabled className="w-full" variant="secondary">
-                        Já Inscrito
-                      </Button>
-                    ) : (
-                      <Button 
-                        onClick={() => handleBuyTicket(event.id)}
-                        className="w-full"
+                      <Badge variant="outline">{event.type_name}</Badge>
+                      <Badge 
+                        variant={event.is_registered ? "default" : "secondary"}
                       >
-                        Comprar Ingresso
-                      </Button>
-                    )}
+                        {event.is_registered ? "Inscrito" : "Disponível"}
+                      </Badge>
+                    </div>
+                    <CardTitle className="line-clamp-2">{event.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex-1 flex flex-col">
+                    <CardDescription className="flex-1 mb-4 line-clamp-3">
+                      {event.description}
+                    </CardDescription>
+                    
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm text-gray-600">
+                        <span className="flex items-center gap-1">
+                          <Users className="h-4 w-4" />
+                          {event.participant_count} participantes
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <DollarSign className="h-4 w-4" />
+                          R$ {event.price.toFixed(2)}
+                        </span>
+                      </div>
+                      
+                      <div className="pt-2 border-t">
+                        {event.is_registered ? (
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => unregisterFromEvent(event.id)}
+                            disabled={registering === event.id}
+                          >
+                            {registering === event.id ? "Cancelando..." : "Cancelar Inscrição"}
+                          </Button>
+                        ) : (
+                          <Button
+                            className="w-full"
+                            onClick={() => registerForEvent(event.id)}
+                            disabled={registering === event.id}
+                          >
+                            {registering === event.id ? "Inscrevendo..." : "Se Inscrever"}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
             </div>
+          )}
+        </div>
 
-            {filteredEvents.length === 0 && (
-              <Card>
-                <CardContent className="p-12 text-center">
-                  <Calendar className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-foreground mb-2">
-                    Nenhum evento encontrado
-                  </h3>
-                  <p className="text-muted-foreground">
-                    {searchTerm || selectedType !== 'all' 
-                      ? 'Tente ajustar os filtros para encontrar eventos.'
-                      : 'Ainda não há eventos disponíveis. Volte em breve!'
-                    }
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-          </>
-        )}
-
-        {activeTab === 'registered' && (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {userEvents.map((event) => (
-              <Card key={event.id} className="card-gradient border-0 shadow-lg">
-                <CardHeader>
-                  <div className="flex justify-between items-start mb-2">
-                    <Badge variant="default">{event.type_name}</Badge>
-                    <span className="text-xl font-bold text-success">
-                      ✓ Inscrito
-                    </span>
-                  </div>
-                  <CardTitle className="text-lg">{event.title}</CardTitle>
-                  <CardDescription className="text-sm">
-                    Por {event.organizer_name}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-3">
-                    {event.description}
-                  </p>
-                  
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Valor pago:</span>
-                      <span className="font-medium">R$ {event.price.toFixed(2)}</span>
+        {/* My Events Section */}
+        {registeredEvents.length > 0 && (
+          <div className="mt-12 space-y-6">
+            <h2 className="text-2xl font-bold text-gray-900">Meus Eventos</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {registeredEvents.map((event) => (
+                <Card key={`registered-${event.id}`} className="border-blue-200 bg-blue-50">
+                  <CardHeader>
+                    <div className="flex justify-between items-start mb-2">
+                      <Badge variant="outline">{event.type_name}</Badge>
+                      <Badge variant="default">Inscrito</Badge>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Inscrito em:</span>
-                      <span className="font-medium">{formatDate(event.registered_at)}</span>
+                    <CardTitle className="line-clamp-2">{event.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <CardDescription className="mb-4 line-clamp-3">
+                      {event.description}
+                    </CardDescription>
+                    
+                    <div className="flex justify-between text-sm text-gray-600 mb-3">
+                      <span className="flex items-center gap-1">
+                        <Users className="h-4 w-4" />
+                        {event.participant_count} participantes
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <DollarSign className="h-4 w-4" />
+                        R$ {event.price.toFixed(2)}
+                      </span>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-
-            {userEvents.length === 0 && (
-              <div className="col-span-full">
-                <Card>
-                  <CardContent className="p-12 text-center">
-                    <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                    <h3 className="text-lg font-semibold text-foreground mb-2">
-                      Você ainda não se inscreveu em nenhum evento
-                    </h3>
-                    <p className="text-muted-foreground mb-4">
-                      Explore os eventos disponíveis e encontre algo interessante!
-                    </p>
-                    <Button 
-                      onClick={() => setActiveTab('available')}
+                    
+                    <Button
                       variant="outline"
+                      className="w-full"
+                      onClick={() => unregisterFromEvent(event.id)}
+                      disabled={registering === event.id}
                     >
-                      Ver Eventos Disponíveis
+                      {registering === event.id ? "Cancelando..." : "Cancelar Inscrição"}
                     </Button>
                   </CardContent>
                 </Card>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
         )}
+
+        {/* Footer */}
+        <div className="mt-12 text-center text-gray-500">
+          <p>Explore os eventos disponíveis e encontre algo interessante!</p>
+        </div>
       </div>
     </div>
   );
