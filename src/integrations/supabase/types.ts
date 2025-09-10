@@ -14,13 +14,183 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      event_types: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      events: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          organizer_id: string
+          price: number
+          status: string
+          title: string
+          type_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          organizer_id: string
+          price?: number
+          status?: string
+          title: string
+          type_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          organizer_id?: string
+          price?: number
+          status?: string
+          title?: string
+          type_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "events_organizer_id_fkey"
+            columns: ["organizer_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_type_id_fkey"
+            columns: ["type_id"]
+            isOneToOne: false
+            referencedRelation: "event_types"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plans: {
+        Row: {
+          created_at: string
+          id: string
+          max_events: number
+          name: string
+          price: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          max_events: number
+          name: string
+          price?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          max_events?: number
+          name?: string
+          price?: number
+        }
+        Relationships: []
+      }
+      tickets: {
+        Row: {
+          created_at: string
+          event_id: string
+          id: string
+          participant_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          id?: string
+          participant_id: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          id?: string
+          participant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tickets_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tickets_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      users: {
+        Row: {
+          auth_id: string | null
+          created_at: string
+          email: string
+          id: string
+          name: string
+          plan_id: string | null
+          role: string
+        }
+        Insert: {
+          auth_id?: string | null
+          created_at?: string
+          email: string
+          id?: string
+          name: string
+          plan_id?: string | null
+          role: string
+        }
+        Update: {
+          auth_id?: string | null
+          created_at?: string
+          email?: string
+          id?: string
+          name?: string
+          plan_id?: string | null
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "users_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_organizer_stats: {
+        Args: { organizer_user_id: string }
+        Returns: Json
+      }
+      get_platform_stats: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
     }
     Enums: {
       [_ in never]: never
