@@ -2,10 +2,23 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import Navbar from "@/components/Navbar";
 import { Users, Calendar, DollarSign, TrendingUp, UserCheck, UserX, Eye, Edit, Trash2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 interface Stats {
   total_users: number;
@@ -37,6 +50,14 @@ interface Event {
   created_at: string;
 }
 
+interface Plan {
+  id: string;
+  name: string;
+  max_events: number;
+  price: number;
+  created_at: string;
+}
+
 const AdminDashboard = () => {
   const [user] = useState(() => {
     const userData = localStorage.getItem('eventflow_user');
@@ -59,6 +80,11 @@ const AdminDashboard = () => {
   const [updatingUser, setUpdatingUser] = useState<string | null>(null);
   const [updatingEvent, setUpdatingEvent] = useState<string | null>(null);
   const { toast } = useToast();
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [planForm, setPlanForm] = useState({ name: "", max_events: "", price: "" });
+  const [isCreatePlanDialogOpen, setIsCreatePlanDialogOpen] = useState(false);
+  const [isEditPlanDialogOpen, setIsEditPlanDialogOpen] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
 
   useEffect(() => {
     fetchDashboardData();
@@ -71,7 +97,7 @@ const AdminDashboard = () => {
         .rpc('get_platform_stats');
 
       if (statsError) throw statsError;
-      
+
       if (statsData && typeof statsData === 'object') {
         setStats(statsData as Stats);
       }
@@ -84,6 +110,17 @@ const AdminDashboard = () => {
 
       if (usersError) throw usersError;
       setUsers(usersData || []);
+
+      // Fetch plans
+      const { data: plansData, error: plansError } = await supabase
+        .from('plans')
+        .select('id, name, max_events, price, created_at')
+        .order('created_at', { ascending: false });
+
+      if (plansError) throw plansError;
+      setPlans(plansData || []);
+
+
 
       // Fetch events with organizer names and participant counts
       const { data: eventsData, error: eventsError } = await supabase
@@ -165,7 +202,7 @@ const AdminDashboard = () => {
     setUpdatingEvent(eventId);
     try {
       const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-      
+
       const { error } = await supabase
         .from('events')
         .update({ status: newStatus })
@@ -245,6 +282,60 @@ const AdminDashboard = () => {
       default:
         return 'outline';
     }
+  };
+
+  const handleCreatePlan = async () => {
+    if (!planForm.name || !planForm.max_events || !planForm.price) {
+      toast({ variant: "destructive", title: "Campos obrigatórios", description: "Preencha todos os campos." });
+      return;
+    }
+    const { error } = await supabase.from("plans").insert([{
+      name: planForm.name,
+      max_events: parseInt(planForm.max_events),
+      price: parseFloat(planForm.price),
+    }]);
+    if (error) {
+      toast({ variant: "destructive", title: "Erro", description: error.message });
+    } else {
+      toast({ title: "Plano criado!", description: "Novo plano adicionado." });
+      setPlanForm({ name: "", max_events: "", price: "" });
+      setIsCreatePlanDialogOpen(false);
+      fetchDashboardData();
+    }
+  };
+
+  const handleEditPlan = async () => {
+    if (!editingPlan) return;
+    const { error } = await supabase.from("plans").update({
+      name: planForm.name,
+      max_events: parseInt(planForm.max_events),
+      price: parseFloat(planForm.price),
+    }).eq("id", editingPlan.id);
+    if (error) {
+      toast({ variant: "destructive", title: "Erro", description: error.message });
+    } else {
+      toast({ title: "Plano atualizado!", description: "Alterações salvas." });
+      setIsEditPlanDialogOpen(false);
+      setEditingPlan(null);
+      fetchDashboardData();
+    }
+  };
+
+  const deletePlan = async (id: string) => {
+    if (!confirm("Deseja excluir este plano?")) return;
+    const { error } = await supabase.from("plans").delete().eq("id", id);
+    if (error) {
+      toast({ variant: "destructive", title: "Erro", description: error.message });
+    } else {
+      toast({ title: "Plano excluído", description: "Plano removido." });
+      fetchDashboardData();
+    }
+  };
+
+  const openEditPlanDialog = (plan: Plan) => {
+    setEditingPlan(plan);
+    setPlanForm({ name: plan.name, max_events: plan.max_events.toString(), price: plan.price.toString() });
+    setIsEditPlanDialogOpen(true);
   };
 
   if (loading) {
@@ -459,6 +550,72 @@ const AdminDashboard = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Plans Management */}
+        <Card className="mt-8 mb-8">
+          <CardHeader className="flex items-center justify-between">
+            <div>
+              <CardTitle>Gerenciar Planos</CardTitle>
+              <CardDescription className="mt-8 mb-4" >Adicione, edite ou remova planos</CardDescription>
+            </div>
+            <Dialog open={isCreatePlanDialogOpen} onOpenChange={setIsCreatePlanDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>+ Novo Plano</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Criar Plano</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <Input placeholder="Nome do plano" value={planForm.name} onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })} />
+                  <Input placeholder="Máx. de eventos" type="number" value={planForm.max_events} onChange={(e) => setPlanForm({ ...planForm, max_events: e.target.value })} />
+                  <Input placeholder="Preço (R$)" type="number" value={planForm.price} onChange={(e) => setPlanForm({ ...planForm, price: e.target.value })} />
+                </div>
+                <DialogFooter>
+                  <Button onClick={handleCreatePlan}>Criar</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </CardHeader>
+          <CardContent>
+            {plans.map((plan) => (
+              <div key={plan.id} className="flex justify-between items-center border rounded p-3 mb-2">
+                <div>
+                  <p className="font-medium">{plan.name}</p>
+                  <p className="text-sm text-gray-500">
+                    Máx. eventos: {plan.max_events} • R$ {plan.price.toFixed(2)}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => openEditPlanDialog(plan)}>
+                    <Edit className="w-4 h-4" />
+                  </Button>
+                  <Button variant="destructive" size="sm" onClick={() => deletePlan(plan.id)}>
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {plans.length === 0 && <p className="text-center text-gray-500 py-4">Nenhum plano encontrado.</p>}
+          </CardContent>
+        </Card>
+
+        {/* Edit Plan Dialog */}
+        <Dialog open={isEditPlanDialogOpen} onOpenChange={setIsEditPlanDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Editar Plano</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <Input placeholder="Nome do plano" value={planForm.name} onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })} />
+              <Input placeholder="Máx. de eventos" type="number" value={planForm.max_events} onChange={(e) => setPlanForm({ ...planForm, max_events: e.target.value })} />
+              <Input placeholder="Preço (R$)" type="number" value={planForm.price} onChange={(e) => setPlanForm({ ...planForm, price: e.target.value })} />
+            </div>
+            <DialogFooter>
+              <Button onClick={handleEditPlan}>Salvar Alterações</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Summary Cards */}
         <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
