@@ -648,12 +648,6 @@ const AdminDashboard = () => {
                     R$ {events.length > 0 ? (stats.total_revenue / events.length).toFixed(2) : '0.00'}
                   </span>
                 </div>
-                <div className="flex justify-between">
-                  <span>Receita por participante:</span>
-                  <span className="font-medium">
-                    R$ {stats.total_registrations > 0 ? (stats.total_revenue / stats.total_registrations).toFixed(2) : '0.00'}
-                  </span>
-                </div>
               </div>
             </CardContent>
           </Card>
