@@ -51,6 +51,14 @@ interface Participant {
   created_at: string;
 }
 
+interface Plan {
+  id: string;
+  name: string;
+  max_events: number;
+  price: number;
+  created_at: string;
+}
+
 const OrganizerDashboard = () => {
   const [user] = useState(() => {
     const userData = localStorage.getItem('eventflow_user');
@@ -68,7 +76,7 @@ const OrganizerDashboard = () => {
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string>("");
-  
+
   const [eventForm, setEventForm] = useState({
     title: "",
     description: "",
@@ -81,6 +89,7 @@ const OrganizerDashboard = () => {
   const [isParticipantsDialogOpen, setIsParticipantsDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);
+  const [plan, setPlan] = useState<Plan | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -107,6 +116,16 @@ const OrganizerDashboard = () => {
       if (typesError) throw typesError;
       setEventTypes(typesData || []);
 
+      // Buscar plano do usuário
+      const { data: planData, error: planError } = await supabase
+        .from("plans")
+        .select("*")
+        .eq("id", user.plan_id) // precisa existir plan_id no usuário
+        .single();
+
+      if (planError) throw planError;
+      setPlan(planData || null);
+
       // Fetch events with participant count
       const { data: eventsData, error: eventsError } = await supabase
         .from('events')
@@ -119,7 +138,7 @@ const OrganizerDashboard = () => {
         .order('created_at', { ascending: false });
 
       if (eventsError) throw eventsError;
-      
+
       const formattedEvents = eventsData?.map(event => ({
         ...event,
         type_name: event.event_types?.name || 'N/A',
@@ -175,6 +194,16 @@ const OrganizerDashboard = () => {
         variant: "destructive",
         title: "Campos obrigatórios",
         description: "Preencha todos os campos obrigatórios.",
+      });
+      return;
+    }
+
+    // Bloquear caso já atingiu o limite do plano
+    if (plan && events.length >= plan.max_events) {
+      toast({
+        variant: "destructive",
+        title: "Limite atingido",
+        description: `Seu plano permite no máximo ${plan.max_events} eventos.`,
       });
       return;
     }
@@ -252,7 +281,7 @@ const OrganizerDashboard = () => {
   const toggleEventStatus = async (eventId: string, currentStatus: string) => {
     try {
       const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-      
+
       const { error } = await supabase
         .from('events')
         .update({ status: newStatus })
@@ -329,7 +358,7 @@ const OrganizerDashboard = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar user={user} />
-      
+
       <div className="container max-w-7xl mx-auto p-6">
         <div className="mb-8 flex items-center justify-between">
           <div>
@@ -339,6 +368,12 @@ const OrganizerDashboard = () => {
             <p className="text-muted-foreground">
               Gerencie seus eventos e acompanhe o desempenho
             </p>
+            {plan && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {events.length} / {plan.max_events} eventos usados no plano{" "}
+                <span className="font-semibold">{plan.name}</span>
+              </p>
+            )}
           </div>
           <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <DialogTrigger asChild>
