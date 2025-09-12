@@ -213,6 +213,12 @@ const Home = () => {
           </div>
         </div>
       </section>
+      {/* Footer */}
+      <footer className="py-6 px-4 bg-black">
+        <div className="container mx-auto text-center text-sm text-white">
+          © {new Date().getFullYear()} EventFlow. Todos os direitos reservados.
+        </div>
+      </footer>
     </div>
   );
 };
