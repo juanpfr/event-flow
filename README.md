@@ -77,8 +77,8 @@ Isso resulta em **maior produtividade, controle e engajamento dos participantes*
 ### Usando sua IDE
 ```bash
 # Clonar repositório
-git clone <YOUR_GIT_URL>
-cd <YOUR_PROJECT_NAME>
+git clone https://github.com/juanpfr/event-flow
+cd event-flow
 
 # Instalar dependências
 npm install
