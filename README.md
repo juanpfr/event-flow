@@ -10,6 +10,10 @@ Isso resulta em **maior produtividade, controle e engajamento dos participantes*
 
 ---
 
+**URL**: https://lovable.dev/projects/f4ef832b-70c5-46e4-ad33-8cdda7cf8c01
+
+---
+
 ## 📋 Fluxo do Sistema
 
 ### 🏠 Tela Inicial (`/`)
