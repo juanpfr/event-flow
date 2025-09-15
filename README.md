@@ -1,3 +1,5 @@
+![Logo](logo.png)
+
 # EventFlow
 
 O **EventFlow** resolve o problema de empresas que enfrentam dificuldades em organizar e gerenciar eventos de forma eficiente, seja webinars, workshops ou conferências.  
@@ -13,6 +15,8 @@ Isso resulta em **maior produtividade, controle e engajamento dos participantes*
 **URL**: https://lovable.dev/projects/f4ef832b-70c5-46e4-ad33-8cdda7cf8c01
 
 ---
+
+![Banner](banner.png)
 
 ## 📋 Fluxo do Sistema
 
