@@ -10,6 +10,8 @@ O diferencial está na **integração com calendário**, **emissão de ingressos
 
 Isso resulta em **maior produtividade, controle e engajamento dos participantes**.
 
+[![Assista à demonstração](https://img.shields.io/badge/🎥%20Ver%20Vídeo%20no%20Drive-blue?style=for-the-badge)](https://drive.google.com/file/d/1NRPCwHcpgqcWewhIStoTZ6hdlQrWOk1A/view?usp=sharing)
+
 ---
 
 **URL**: https://lovable.dev/projects/f4ef832b-70c5-46e4-ad33-8cdda7cf8c01
